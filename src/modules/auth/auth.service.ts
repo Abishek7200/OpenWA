@@ -20,15 +20,25 @@ export class AuthService implements OnModuleInit {
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Seed a default API key if none exist
+    // Check if a master API key is defined in the environment
+    const envKey = process.env.API_MASTER_KEY || process.env.ADMIN_API_KEY;
+    let hasEnvKey = false;
+
+    if (envKey) {
+      const keyHash = this.hashKey(envKey);
+      const existing = await this.apiKeyRepository.findOne({ where: { keyHash } });
+      hasEnvKey = !!existing;
+    }
+
     const count = await this.apiKeyRepository.count();
     let displayKey: string;
     let isNewKey = false;
 
     if (count === 0) {
-      // Use predictable key in development, random key in production
+      // Use environment key if defined, otherwise dev-admin-key (dev) or random key (prod)
       displayKey =
-        process.env.NODE_ENV === 'production' ? `owa_k1_${randomBytes(32).toString('hex')}` : 'dev-admin-key';
+        envKey ||
+        (process.env.NODE_ENV === 'production' ? `owa_k1_${randomBytes(32).toString('hex')}` : 'dev-admin-key');
 
       await this.seedApiKey(displayKey, 'Default Admin Key', ApiKeyRole.ADMIN);
       isNewKey = true;
@@ -39,17 +49,28 @@ export class AuthService implements OnModuleInit {
       } catch (err) {
         this.logger.warn('Could not save API key file', { error: String(err) });
       }
+    } else if (envKey && !hasEnvKey) {
+      // If there are already keys, but a new master key was provided in .env, seed it
+      displayKey = envKey;
+      await this.seedApiKey(displayKey, 'Environment Admin Key', ApiKeyRole.ADMIN);
+      isNewKey = true;
+
+      try {
+        writeFileSync(API_KEY_FILE, displayKey, 'utf-8');
+      } catch (err) {
+        this.logger.warn('Could not save API key file', { error: String(err) });
+      }
     } else {
-      // Read saved API key from file if exists
+      // Read saved API key from file if exists, fallback to envKey, or default placeholder
       if (existsSync(API_KEY_FILE)) {
         try {
           displayKey = readFileSync(API_KEY_FILE, 'utf-8').trim();
         } catch (error) {
           this.logger.warn(`Failed to read API key file: ${API_KEY_FILE}`, { error: String(error) });
-          displayKey = '(check dashboard for keys)';
+          displayKey = envKey || '(check dashboard for keys)';
         }
       } else {
-        displayKey = '(check dashboard for keys)';
+        displayKey = envKey || '(check dashboard for keys)';
       }
     }
 
