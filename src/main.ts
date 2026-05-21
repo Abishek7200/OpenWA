@@ -64,6 +64,16 @@ STORAGE_PATH=./data/media
   dotenv.config({ path: generatedEnvPath, override: false });
 }
 
+// Global safety handlers to prevent asynchronous library-level crashes (such as Puppeteer/Chrome TargetCloseError)
+// from terminating the NestJS server process abruptly.
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️ [Process] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('⚠️ [Process] Uncaught Exception thrown:', error);
+});
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
